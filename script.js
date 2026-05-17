@@ -1,36 +1,12 @@
-class Agent {
-  constructor(id, x, y) {
-    this.id = id;
-    this.x = x;
-    this.y = y;
-  }
-}
-class Predator extends Agent {
-  constructor(id, x, y, hunger = 0) {
-    super(id, x, y);
-    this.hunger = hunger;
-  }
-}
-class Prey extends Agent {
-  constructor(id, x, y, hunger = 0) {
-    super(id, x, y);
-    this.hunger = hunger;
-  }
-}
-class Grid {
-  constructor(size) { this.size = size; }
-  inBounds(x, y) { return x >= 0 && x < this.size && y >= 0 && y < this.size; }
-}
+class Agent { constructor(id, x, y) { this.id = id; this.x = x; this.y = y; } }
+class Predator extends Agent { constructor(id, x, y, deathCounter = 0) { super(id, x, y); this.deathCounter = deathCounter; } }
+class Prey extends Agent { constructor(id, x, y, deathCounter = 0) { super(id, x, y); this.deathCounter = deathCounter; } }
+class Grid { constructor(size) { this.size = size; } inBounds(x, y) { return x >= 0 && x < this.size && y >= 0 && y < this.size; } }
 
 class Simulation {
   constructor() {
     this.GRID_SIZE = 100;
-    this.INIT_PREDATORS = 20;
-    this.INIT_PREY = 50;
     this.OBSTACLE_COUNT = 1000;
-    this.MIN_STARS = 20;
-    this.STARVATION_PREDATOR = 60;
-    this.STARVATION_PREY = 200;
 
     this.grid = new Grid(this.GRID_SIZE);
     this.dirs = [[-1,-1],[0,-1],[1,-1],[-1,0],[1,0],[-1,1],[0,1],[1,1]];
@@ -39,21 +15,24 @@ class Simulation {
     this.generation = 1;
     this.running = false;
     this.timer = null;
-    this.intervalMs = 200;
+    this.intervalMs = 100;
 
-    this.predators = [];
-    this.preys = [];
-    this.stars = new Set();
-    this.obstacles = new Set();
+    this.predators = []; this.preys = []; this.stars = new Set(); this.obstacles = new Set();
     this.nextAgentId = 1;
 
     this.predatorMemory = { chaseWeight: 1 };
     this.preyMemory = { dangerWeight: 1.5 };
 
-    this.obstacleCountdown = this.randomObstacleInterval();
+    this.currentGenHistory = { turns: [], predatorCounts: [], preyCounts: [] };
+    this.previousGenHistory = null;
 
     this.el = {
       grid: document.getElementById('grid'),
+      predatorInput: document.getElementById('predatorInput'),
+      preyInput: document.getElementById('preyInput'),
+      resourceInput: document.getElementById('resourceInput'),
+      redDeathInput: document.getElementById('redDeathInput'),
+      blueDeathInput: document.getElementById('blueDeathInput'),
       startBtn: document.getElementById('startBtn'),
       pauseBtn: document.getElementById('pauseBtn'),
       resetBtn: document.getElementById('resetBtn'),
@@ -66,18 +45,33 @@ class Simulation {
       prey: document.getElementById('preyCount'),
       stars: document.getElementById('starCount'),
       obstacleCountdown: document.getElementById('obstacleCountdown'),
-      status: document.getElementById('statusMessage')
+      status: document.getElementById('statusMessage'),
+      chart: document.getElementById('statsChart')
     };
+
+    this.chartCtx = this.el.chart.getContext('2d');
 
     this.buildGridUI();
     this.bindControls();
+    this.applyConfigFromInputs();
     this.reset(true);
+  }
+
+  applyConfigFromInputs() {
+    this.INIT_PREDATORS = Math.max(1, Number(this.el.predatorInput.value) || 20);
+    this.INIT_PREY = Math.max(1, Number(this.el.preyInput.value) || 50);
+    this.MIN_STARS = Math.max(1, Number(this.el.resourceInput.value) || 20);
+    this.STARVATION_PREDATOR = Math.max(1, Number(this.el.redDeathInput.value) || 60);
+    this.STARVATION_PREY = Math.max(1, Number(this.el.blueDeathInput.value) || 200);
   }
 
   bindControls() {
     this.el.startBtn.addEventListener('click', () => this.start());
     this.el.pauseBtn.addEventListener('click', () => this.pause());
     this.el.resetBtn.addEventListener('click', () => this.reset(true));
+    [this.el.predatorInput, this.el.preyInput, this.el.resourceInput, this.el.redDeathInput, this.el.blueDeathInput].forEach((input) => {
+      input.addEventListener('change', () => { this.applyConfigFromInputs(); if (!this.running) this.reset(true); });
+    });
     this.el.speedSlider.addEventListener('input', (e) => {
       this.intervalMs = Number(e.target.value);
       this.el.speedValue.textContent = String(this.intervalMs);
@@ -89,20 +83,15 @@ class Simulation {
     this.cells = [];
     const frag = document.createDocumentFragment();
     for (let i = 0; i < this.GRID_SIZE * this.GRID_SIZE; i += 1) {
-      const c = document.createElement('div');
-      c.className = 'cell empty';
-      this.cells.push(c);
-      frag.appendChild(c);
+      const c = document.createElement('div'); c.className = 'cell empty'; this.cells.push(c); frag.appendChild(c);
     }
-    this.el.grid.innerHTML = '';
-    this.el.grid.appendChild(frag);
+    this.el.grid.innerHTML = ''; this.el.grid.appendChild(frag);
   }
 
   randomObstacleInterval() { return 3 + Math.floor(Math.random() * 8); }
   key(x, y) { return `${x},${y}`; }
-  parseKey(key) { return key.split(',').map(Number); }
+  parseKey(k) { return k.split(',').map(Number); }
   index(x, y) { return y * this.GRID_SIZE + x; }
-
   predatorAt(x, y) { return this.predators.find((p) => p.x === x && p.y === y) || null; }
   preyAt(x, y) { return this.preys.find((p) => p.x === x && p.y === y) || null; }
 
@@ -112,9 +101,8 @@ class Simulation {
   }
 
   randomEmptyCell() {
-    for (let i = 0; i < 30000; i += 1) {
-      const x = Math.floor(Math.random() * this.GRID_SIZE);
-      const y = Math.floor(Math.random() * this.GRID_SIZE);
+    for (let i = 0; i < 35000; i += 1) {
+      const x = Math.floor(Math.random() * this.GRID_SIZE); const y = Math.floor(Math.random() * this.GRID_SIZE);
       if (!this.isOccupied(x, y)) return { x, y };
     }
     return null;
@@ -122,54 +110,38 @@ class Simulation {
 
   placeInitial() {
     while (this.obstacles.size < this.OBSTACLE_COUNT) {
-      const pos = this.randomEmptyCell();
-      if (!pos) break;
-      this.obstacles.add(this.key(pos.x, pos.y));
+      const pos = this.randomEmptyCell(); if (!pos) break; this.obstacles.add(this.key(pos.x, pos.y));
     }
     for (let i = 0; i < this.INIT_PREDATORS; i += 1) {
-      const pos = this.randomEmptyCell();
-      if (pos) this.predators.push(new Predator(this.nextAgentId++, pos.x, pos.y));
+      const pos = this.randomEmptyCell(); if (pos) this.predators.push(new Predator(this.nextAgentId++, pos.x, pos.y, 0));
     }
     for (let i = 0; i < this.INIT_PREY; i += 1) {
-      const pos = this.randomEmptyCell();
-      if (pos) this.preys.push(new Prey(this.nextAgentId++, pos.x, pos.y));
+      const pos = this.randomEmptyCell(); if (pos) this.preys.push(new Prey(this.nextAgentId++, pos.x, pos.y, 0));
     }
     this.ensureMinStars();
+    this.obstacleCountdown = this.randomObstacleInterval();
   }
 
   reset(fullReset = false) {
-    this.pause();
-    this.turn = 0;
+    this.pause(); this.applyConfigFromInputs(); this.turn = 0;
     if (fullReset) {
       this.generation = 1;
       this.predatorMemory = { chaseWeight: 1 };
       this.preyMemory = { dangerWeight: 1.5 };
+      this.previousGenHistory = null;
     }
-    this.predators = [];
-    this.preys = [];
-    this.stars = new Set();
-    this.obstacles = new Set();
-    this.nextAgentId = 1;
-    this.obstacleCountdown = this.randomObstacleInterval();
-    this.placeInitial();
-    this.el.status.textContent = '';
-    this.render();
+    this.currentGenHistory = { turns: [], predatorCounts: [], preyCounts: [] };
+    this.predators = []; this.preys = []; this.stars = new Set(); this.obstacles = new Set(); this.nextAgentId = 1;
+    this.placeInitial(); this.el.status.textContent = ''; this.recordHistory(); this.render();
   }
 
-  start() {
-    if (this.running) return;
-    this.running = true;
-    this.timer = setInterval(() => this.step(), this.intervalMs);
-  }
+  start() { if (this.running) return; this.running = true; this.timer = setInterval(() => this.step(), this.intervalMs); }
   pause() { this.running = false; if (this.timer) clearInterval(this.timer); this.timer = null; }
 
-  dist(a,b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+  dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
   nearestTarget(from, targets) {
     let best = null; let bestD = Infinity;
-    for (const t of targets) {
-      const d = this.dist(from, t);
-      if (d < bestD) { bestD = d; best = t; }
-    }
+    for (const t of targets) { const d = this.dist(from, t); if (d < bestD) { bestD = d; best = t; } }
     return best;
   }
 
@@ -217,14 +189,11 @@ class Simulation {
 
   shuffled(arr) {
     const a = [...arr];
-    for (let i = a.length - 1; i > 0; i -= 1) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [a[i], a[j]] = [a[j], a[i]];
-    }
+    for (let i = a.length - 1; i > 0; i -= 1) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
     return a;
   }
 
-  movePredators(ateIds) {
+  movePredators() {
     const order = this.shuffled(this.predators);
     const reserved = new Set(order.map((p) => this.key(p.x, p.y)));
     for (const predator of order) {
@@ -237,9 +206,10 @@ class Simulation {
       const victim = this.preyAt(predator.x, predator.y);
       if (victim) {
         this.preys = this.preys.filter((p) => p.id !== victim.id);
-        this.predators.push(new Predator(this.nextAgentId++, victim.x, victim.y));
-        predator.hunger = 0;
-        ateIds.add(predator.id);
+        predator.deathCounter = 0;
+        if (predator.deathCounter <= Math.floor(this.STARVATION_PREDATOR / 2)) {
+          this.predators.push(new Predator(this.nextAgentId++, predator.x, predator.y, predator.deathCounter));
+        }
       }
     }
   }
@@ -257,9 +227,11 @@ class Simulation {
       const k = this.key(prey.x, prey.y);
       if (this.stars.has(k)) {
         this.stars.delete(k);
-        prey.hunger = 0;
-        const pos = this.randomEmptyCell();
-        if (pos) this.preys.push(new Prey(this.nextAgentId++, pos.x, pos.y));
+        prey.deathCounter = 0;
+        if (prey.deathCounter <= Math.floor(this.STARVATION_PREY / 2)) {
+          const pos = this.randomEmptyCell();
+          if (pos) this.preys.push(new Prey(this.nextAgentId++, pos.x, pos.y, prey.deathCounter));
+        }
         const foodPos = this.randomEmptyCell();
         if (foodPos) this.stars.add(this.key(foodPos.x, foodPos.y));
       }
@@ -268,39 +240,15 @@ class Simulation {
 
   ensureMinStars() {
     while (this.stars.size < this.MIN_STARS) {
-      const p = this.randomEmptyCell();
-      if (!p) break;
-      this.stars.add(this.key(p.x, p.y));
+      const p = this.randomEmptyCell(); if (!p) break; this.stars.add(this.key(p.x, p.y));
     }
   }
 
   respawnOneObstacle() {
-    if (this.obstacles.size === 0) return;
-    const all = [...this.obstacles];
-    const removeKey = all[Math.floor(Math.random() * all.length)];
+    if (!this.obstacles.size) return;
+    const all = [...this.obstacles]; const removeKey = all[Math.floor(Math.random() * all.length)];
     this.obstacles.delete(removeKey);
-    const p = this.randomEmptyCell();
-    if (p) this.obstacles.add(this.key(p.x, p.y));
-    else this.obstacles.add(removeKey);
-  }
-
-  endGeneration(winner) {
-    this.el.status.textContent = `${winner} win generation ${this.generation} (turn ${this.turn}).`;
-    this.learnFromGeneration(winner);
-    if (this.el.autoGenToggle.checked) {
-      this.generation += 1;
-      this.turn = 0;
-      this.predators = [];
-      this.preys = [];
-      this.stars = new Set();
-      this.obstacles = new Set();
-      this.nextAgentId = 1;
-      this.obstacleCountdown = this.randomObstacleInterval();
-      this.placeInitial();
-      this.render();
-      return;
-    }
-    this.pause();
+    const p = this.randomEmptyCell(); if (p) this.obstacles.add(this.key(p.x, p.y)); else this.obstacles.add(removeKey);
   }
 
   learnFromGeneration(winner) {
@@ -308,50 +256,101 @@ class Simulation {
     else this.preyMemory.dangerWeight = Math.min(3, this.preyMemory.dangerWeight + 0.05);
   }
 
+  beginNextGeneration() {
+    this.previousGenHistory = { ...this.currentGenHistory };
+    this.currentGenHistory = { turns: [], predatorCounts: [], preyCounts: [] };
+    this.generation += 1;
+    this.turn = 0;
+    this.predators = []; this.preys = []; this.stars = new Set(); this.obstacles = new Set(); this.nextAgentId = 1;
+    this.placeInitial();
+    this.recordHistory();
+  }
+
+  endGeneration(winner) {
+    this.el.status.textContent = `${winner} win generation ${this.generation} (turn ${this.turn}).`;
+    this.learnFromGeneration(winner);
+    if (this.el.autoGenToggle.checked) {
+      this.beginNextGeneration();
+      return;
+    }
+    this.pause();
+  }
+
+  recordHistory() {
+    this.currentGenHistory.turns.push(this.turn);
+    this.currentGenHistory.predatorCounts.push(this.predators.length);
+    this.currentGenHistory.preyCounts.push(this.preys.length);
+  }
+
+  drawChart() {
+    const ctx = this.chartCtx;
+    const w = this.el.chart.width; const h = this.el.chart.height;
+    ctx.clearRect(0, 0, w, h);
+    const pad = { l: 45, r: 15, t: 15, b: 30 };
+    const plotW = w - pad.l - pad.r;
+    const plotH = h - pad.t - pad.b;
+
+    const allY = [...this.currentGenHistory.predatorCounts, ...this.currentGenHistory.preyCounts];
+    if (this.previousGenHistory) allY.push(...this.previousGenHistory.predatorCounts, ...this.previousGenHistory.preyCounts);
+    const maxY = Math.max(1, ...allY);
+    const maxX = Math.max(1, this.currentGenHistory.turns[this.currentGenHistory.turns.length - 1] || 1,
+      this.previousGenHistory?.turns[this.previousGenHistory.turns.length - 1] || 1);
+
+    ctx.strokeStyle = '#333'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(pad.l, pad.t); ctx.lineTo(pad.l, h - pad.b); ctx.lineTo(w - pad.r, h - pad.b); ctx.stroke();
+    ctx.fillStyle = '#333'; ctx.font = '12px Arial'; ctx.fillText('Turn', w / 2 - 12, h - 8); ctx.fillText('Count', 5, 12);
+
+    const drawSeries = (turns, counts, color) => {
+      if (!turns || turns.length < 2) return;
+      ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.beginPath();
+      for (let i = 0; i < turns.length; i += 1) {
+        const x = pad.l + (turns[i] / maxX) * plotW;
+        const y = (h - pad.b) - (counts[i] / maxY) * plotH;
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    };
+
+    drawSeries(this.currentGenHistory.turns, this.currentGenHistory.predatorCounts, 'rgba(210,20,20,0.95)');
+    drawSeries(this.currentGenHistory.turns, this.currentGenHistory.preyCounts, 'rgba(20,80,230,0.95)');
+
+    if (this.generation !== 1 && this.previousGenHistory) {
+      drawSeries(this.previousGenHistory.turns, this.previousGenHistory.predatorCounts, 'rgba(210,20,20,0.35)');
+      drawSeries(this.previousGenHistory.turns, this.previousGenHistory.preyCounts, 'rgba(20,80,230,0.35)');
+    }
+  }
+
   step() {
     if (!this.running) return;
     this.turn += 1;
 
-    const ateIds = new Set();
-    this.movePredators(ateIds);
+    this.movePredators();
     this.movePreys();
 
-    for (const predator of this.predators) if (!ateIds.has(predator.id)) predator.hunger += 1;
-    for (const prey of this.preys) prey.hunger += 1;
+    for (const predator of this.predators) predator.deathCounter += 1;
+    for (const prey of this.preys) prey.deathCounter += 1;
 
-    this.predators = this.predators.filter((p) => p.hunger < this.STARVATION_PREDATOR);
-    this.preys = this.preys.filter((p) => p.hunger < this.STARVATION_PREY);
+    this.predators = this.predators.filter((p) => p.deathCounter < this.STARVATION_PREDATOR);
+    this.preys = this.preys.filter((p) => p.deathCounter < this.STARVATION_PREY);
 
     this.ensureMinStars();
 
     this.obstacleCountdown -= 1;
-    if (this.obstacleCountdown <= 0) {
-      this.respawnOneObstacle();
-      this.obstacleCountdown = this.randomObstacleInterval();
-    }
+    if (this.obstacleCountdown <= 0) { this.respawnOneObstacle(); this.obstacleCountdown = this.randomObstacleInterval(); }
 
     if (this.preys.length === 0) this.endGeneration('Predators');
     else if (this.predators.length === 0) this.endGeneration('Prey');
 
+    this.recordHistory();
     this.render();
   }
 
   render() {
     for (const c of this.cells) { c.className = 'cell empty'; c.textContent = ''; }
     for (const k of this.obstacles) { const [x, y] = this.parseKey(k); this.cells[this.index(x, y)].className = 'cell obstacle'; }
-    for (const k of this.stars) {
-      const [x, y] = this.parseKey(k);
-      const c = this.cells[this.index(x, y)];
-      c.className = 'cell food'; c.textContent = '★';
-    }
-    for (const p of this.preys) {
-      const c = this.cells[this.index(p.x, p.y)];
-      c.className = 'cell prey'; c.textContent = '●';
-    }
-    for (const p of this.predators) {
-      const c = this.cells[this.index(p.x, p.y)];
-      c.className = 'cell predator'; c.textContent = '●';
-    }
+    for (const k of this.stars) { const [x, y] = this.parseKey(k); const c = this.cells[this.index(x, y)]; c.className = 'cell food'; c.textContent = '★'; }
+    for (const p of this.preys) { const c = this.cells[this.index(p.x, p.y)]; c.className = 'cell prey'; c.textContent = '●'; }
+    for (const p of this.predators) { const c = this.cells[this.index(p.x, p.y)]; c.className = 'cell predator'; c.textContent = '●'; }
 
     this.el.generation.textContent = String(this.generation);
     this.el.turn.textContent = String(this.turn);
@@ -359,6 +358,7 @@ class Simulation {
     this.el.prey.textContent = String(this.preys.length);
     this.el.stars.textContent = String(this.stars.size);
     this.el.obstacleCountdown.textContent = String(this.obstacleCountdown);
+    this.drawChart();
   }
 }
 
