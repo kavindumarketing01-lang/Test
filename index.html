@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Predator–Prey Simulation</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <h1>Predator–Prey AI Simulation</h1>
+
+    <div class="controls">
+      <button id="startBtn">Start</button>
+      <button id="pauseBtn">Pause</button>
+      <button id="resetBtn">Reset</button>
+      <label for="speedSlider">Speed (ms/turn)</label>
+      <input id="speedSlider" type="range" min="50" max="1000" step="50" value="300" />
+      <span id="speedValue">300</span>
+    </div>
+
+    <div class="stats">
+      <div>Turn: <span id="turnCount">0</span></div>
+      <div>Predators: <span id="predatorCount">0</span></div>
+      <div>Prey: <span id="preyCount">0</span></div>
+      <div>Stars: <span id="starCount">0</span></div>
+      <div>Obstacle Regen In: <span id="obstacleCountdown">0</span></div>
+    </div>
+
+    <p id="statusMessage" class="status"></p>
+
+    <div id="grid" class="grid" aria-label="Simulation Grid"></div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
