@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Predator–Prey Simulation</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <h1>Predator–Prey AI Simulation</h1>
+
+    <div class="controls">
+      <label>Predators <input id="predatorInput" type="number" min="1" max="500" value="20" /></label>
+      <label>Prey <input id="preyInput" type="number" min="1" max="500" value="50" /></label>
+      <label>Resources <input id="resourceInput" type="number" min="1" max="500" value="20" /></label>
+
+      <label>Red death moves <input id="redDeathInput" type="number" min="1" max="2000" value="60" /></label>
+      <label>Blue death moves <input id="blueDeathInput" type="number" min="1" max="5000" value="200" /></label>
+
+      <button id="startBtn">Start</button>
+      <label class="switchLabel" for="autoGenToggle">
+        <input id="autoGenToggle" type="checkbox" />
+        Keep progressing generations
+      </label>
+      <button id="pauseBtn">Pause</button>
+      <button id="resetBtn">Reset</button>
+      <label for="speedSlider">Speed (ms/turn)</label>
+      <input id="speedSlider" type="range" min="1" max="1000" step="1" value="100" />
+      <span id="speedValue">100</span>
+    </div>
+
+    <div class="stats">
+      <div>Generation: <span id="generationCount">1</span></div>
+      <div>Turn: <span id="turnCount">0</span></div>
+      <div>Predators: <span id="predatorCount">0</span></div>
+      <div>Prey: <span id="preyCount">0</span></div>
+      <div>Stars: <span id="starCount">0</span></div>
+      <div>Obstacle Respawns In: <span id="obstacleCountdown">0</span></div>
+    </div>
+
+    <p id="statusMessage" class="status"></p>
+    <div id="grid" class="grid" aria-label="Simulation Grid"></div>
+
+    <div class="chartWrap">
+      <h3>Population Statistics</h3>
+      <canvas id="statsChart" width="900" height="260" aria-label="Population chart"></canvas>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
